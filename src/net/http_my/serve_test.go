@@ -2846,37 +2846,6 @@ func TestHijackBeforeRequestBodyRead(t *testing.T) {
 	}
 }
 
-func TestReadTimeoutWithCloseNotify(t *testing.T) {
-	setParallel(t)
-	defer afterTest(t)
-
-	gotCloseNotify := make(chan bool, 1)
-	ts := httptest.NewUnstartedServer(HandlerFunc(func(res ResponseWriter, req *Request) {
-		time.Sleep(300 * time.Millisecond)
-		select {
-		case <-res.(CloseNotifier).CloseNotify():
-			gotCloseNotify <- true
-		default:
-			gotCloseNotify <- false
-		}
-	}))
-	ts.Config.ReadTimeout = 250 * time.Millisecond
-	ts.Config.ReadHeaderTimeout = 250 * time.Millisecond
-	ts.Start()
-	defer ts.Close()
-
-	// Hit the HTTP server successfully.
-	c := &Client{}
-	_, err := c.Get(ts.URL)
-	if err != nil {
-		t.Fatalf("http Get error: %v", err)
-	}
-
-	if <-gotCloseNotify {
-		t.Error("got CloseNotify, but should not.")
-	}
-}
-
 func TestOptions(t *testing.T) {
 	uric := make(chan string, 2) // only expect 1, but leave space for 2
 	mux := NewServeMux()
