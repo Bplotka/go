@@ -1,4 +1,4 @@
-// Copyright 2009 The Go Authors. All rights reserved.
+// Copyright (c) Improbable Worlds Ltd, All Rights Reserved
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
@@ -13,6 +13,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"golang_org/x/net/lex/httplex"
 	"io"
 	"io/ioutil"
 	"log"
@@ -27,8 +28,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"golang_org/x/net/lex/httplex"
 )
 
 // Errors used by the HTTP server.
@@ -642,6 +641,8 @@ func (cr *connReader) startBackgroundRead() {
 }
 
 func (cr *connReader) backgroundRead() {
+	cr.conn.rwc.SetReadDeadline(time.Time{})
+
 	n, err := cr.conn.rwc.Read(cr.byteBuf[:])
 	cr.lock()
 	if n == 1 {
@@ -653,9 +654,9 @@ func (cr *connReader) backgroundRead() {
 	}
 
 	/// DEBUG
-	ne, ok := err.(net.Error);
+	ne, ok := err.(net.Error)
 	if ok {
-		log.Printf("%v, %v, %v, %v\n", ne.Error(), ne.Timeout(),  cr.aborted, ne.Timeout())
+		log.Printf("%v, %v, %v, %v\n", ne.Error(), ne.Timeout(), cr.aborted, ne.Timeout())
 	}
 
 	if ne, ok := err.(net.Error); ok && cr.aborted && ne.Timeout() {
