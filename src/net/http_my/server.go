@@ -658,7 +658,6 @@ func (cr *connReader) backgroundRead() {
 		log.Printf("%v, %v, %v, %v\n", ne.Error(), ne.Timeout(),  cr.aborted, ne.Timeout())
 	}
 
-
 	if ne, ok := err.(net.Error); ok && cr.aborted && ne.Timeout() {
 		// Ignore this error. It's the expected error from
 		// another goroutine calling abortPendingRead.
@@ -673,6 +672,7 @@ func (cr *connReader) backgroundRead() {
 }
 
 func (cr *connReader) abortPendingRead() {
+	log.Println("Abort!")
 	cr.lock()
 	defer cr.unlock()
 	if !cr.inRead {
@@ -693,7 +693,7 @@ func (cr *connReader) hitReadLimit() bool        { return cr.remain <= 0 }
 // may be called from multiple goroutines.
 func (cr *connReader) handleReadError(err error) {
 	cr.conn.cancelCtx()
-	log.Println("handleReadError")
+	log.Println("handleReadError, but maybe currReqLoad is nil")
 	cr.closeNotify()
 }
 
@@ -757,7 +757,7 @@ func (cr *connReader) Read(p []byte) (n int, err error) {
 	cr.lock()
 	cr.inRead = false
 	if err != nil {
-		println("*connReader) Read problem")
+		log.Println("*connReader) Read problem")
 		cr.handleReadError(err)
 	}
 	cr.remain -= int64(n)
@@ -909,6 +909,7 @@ func (c *conn) readRequest(ctx context.Context) (w *response, err error) {
 		return nil, ErrHijacked
 	}
 
+	log.Println("In read")
 	var (
 		wholeReqDeadline time.Time // or zero if none
 		hdrDeadline      time.Time // or zero if none
@@ -1715,6 +1716,7 @@ func isCommonNetReadError(err error) bool {
 
 // Serve a new connection.
 func (c *conn) serve(ctx context.Context) {
+	log.Println("New connection")
 	c.remoteAddr = c.rwc.RemoteAddr().String()
 	defer func() {
 		if err := recover(); err != nil && err != ErrAbortHandler {
@@ -1762,12 +1764,16 @@ func (c *conn) serve(ctx context.Context) {
 	c.bufw = newBufioWriterSize(checkConnErrorWriter{c}, 4<<10)
 
 	for {
+		log.Println("LOL")
 		w, err := c.readRequest(ctx)
+		log.Println("0.5")
 		if c.r.remain != c.server.initialReadLimitSize() {
 			// If we read any bytes off the wire, we're active.
 			c.setState(c.rwc, StateActive)
 		}
+		log.Println("1")
 		if err != nil {
+			log.Println("2")
 			const errorHeaders = "\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n"
 
 			if err == errTooLarge {
@@ -1833,15 +1839,18 @@ func (c *conn) serve(ctx context.Context) {
 		}
 		w.finishRequest()
 		if !w.shouldReuseConnection() {
+			log.Println("Cannot reuse")
 			if w.requestBodyLimitHit || w.closedRequestBodyEarly() {
 				c.closeWriteAndWait()
 			}
 			return
 		}
+		log.Println("Keep alive!")
 		c.setState(c.rwc, StateIdle)
 		c.curReq.Store((*response)(nil))
 
 		if !w.conn.server.doKeepAlives() {
+			log.Println("Shutting down")
 			// We're in shutdown mode. We might've replied
 			// to the user without "Connection: close" and
 			// they might think they can send another
@@ -1852,9 +1861,11 @@ func (c *conn) serve(ctx context.Context) {
 		if d := c.server.idleTimeout(); d != 0 {
 			c.rwc.SetReadDeadline(time.Now().Add(d))
 			if _, err := c.bufr.Peek(4); err != nil {
+				log.Printf("Lol %v\n?", err)
 				return
 			}
 		}
+		log.Println("Maybe go?")
 		c.rwc.SetReadDeadline(time.Time{})
 	}
 }

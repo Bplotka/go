@@ -534,6 +534,76 @@ func TestServerTimeouts(t *testing.T) {
 	}
 }
 
+func TestServerReadTimeoutsWithCloseNotify(t *testing.T) {
+	setParallel(t)
+	defer afterTest(t)
+
+	gotCloseNotify := make(chan bool, 1)
+	ts := httptest.NewUnstartedServer(HandlerFunc(func(res ResponseWriter, req *Request) {
+		time.Sleep(300 * time.Millisecond)
+		select {
+		case <-res.(CloseNotifier).CloseNotify():
+			gotCloseNotify <- true
+		default:
+			gotCloseNotify <- false
+		}
+	}))
+	ts.Config.ReadTimeout = 250 * time.Millisecond
+	ts.Config.ReadHeaderTimeout = 250 * time.Millisecond
+	ts.Start()
+	defer ts.Close()
+
+	// Hit the HTTP server successfully.
+	c := &Client{}
+	_, err := c.Get(ts.URL)
+	if err != nil {
+		t.Fatalf("http Get error: %v", err)
+	}
+
+	if <-gotCloseNotify {
+		t.Error("got CloseNotify, but should not.")
+	}
+}
+
+func TestServerReadTimeoutsWithCloseNotifyMultipleReq(t *testing.T) {
+	setParallel(t)
+	defer afterTest(t)
+
+	gotCloseNotify := make(chan bool, 10)
+	ts := httptest.NewUnstartedServer(HandlerFunc(func(res ResponseWriter, req *Request) {
+		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-res.(CloseNotifier).CloseNotify():
+			gotCloseNotify <- true
+		default:
+			gotCloseNotify <- false
+		}
+	}))
+	ts.Config.ReadTimeout = 250 * time.Millisecond
+	ts.Config.ReadHeaderTimeout = 250 * time.Millisecond
+	ts.Start()
+	defer ts.Close()
+
+	c := &Client{}
+	for i:=0; i < 8; i++ {
+		// Hit the HTTP server successfully.
+		resp, err := c.Get(ts.URL)
+		if err != nil {
+			t.Fatalf("http Get error: %v", err)
+		}
+
+		_, err = ioutil.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("http Get error: %v", err)
+		}
+
+		if <-gotCloseNotify {
+			t.Fatalf("got CloseNotify on %v request, but should not.", i+1)
+		}
+		time.Sleep(100 *time.Millisecond)
+	}
+}
+
 // golang.org/issue/4741 -- setting only a write timeout that triggers
 // shouldn't cause a handler to block forever on reads (next HTTP
 // request) that will never happen.
